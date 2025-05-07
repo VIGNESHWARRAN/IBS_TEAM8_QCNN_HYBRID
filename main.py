@@ -101,7 +101,7 @@ class ClassicalDecoder(nn.Module):
 # 5️⃣ Full Hybrid Model
 # =====================
 class HybridGenCoder(nn.Module):
-    def __init__(self, input_length=7098, latent_dim=20):
+    def __init__(self, input_length=7098, latent_dim=10):
         super(HybridGenCoder, self).__init__()
         self.encoder = ClassicalEncoder(input_length, latent_dim)
         self.quantum_compressor = QuantumLatentCompressor(n_qubits=latent_dim)

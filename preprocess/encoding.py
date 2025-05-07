@@ -20,8 +20,8 @@ def load_and_clean_csv(file_path, output_file):
 # 2️⃣ One-Hot Encode DNA Sequence
 # =====================
 def one_hot_encode(df):
-    mapping = {'A': [1, 0, 0, 0, 0], 'B': [0, 1, 0, 0, 0], 
-               'C': [0, 0, 1, 0, 0], 'D': [0, 0, 0, 1, 0], 'N': [0, 0, 0, 0, 1]}  # Include 'N'
+    mapping = {'A': [1, 0, 0, 0, 0], 'T': [0, 1, 0, 0, 0], 
+               'G': [0, 0, 1, 0, 0], 'C': [0, 0, 0, 1, 0], 'N': [0, 0, 0, 0, 1]}  # Include 'N'
 
     encoded_data = []
     for _, row in df.iterrows():
@@ -36,7 +36,7 @@ def one_hot_encode(df):
 # 3️⃣ Quantum Encode DNA Sequence (Phase Encoding)
 # =====================
 def quantum_encode(df):
-    phase_mapping = {'A': 0, 'B': 90, 'C': 180, 'D': 270, 'N': 45}  # Include 'N' as 45°
+    phase_mapping = {'A': 0, 'T': 90, 'G': 180, 'C': 270, 'N': 45}  # Include 'N' as 45°
 
     encoded_data = []
     for _, row in df.iterrows():

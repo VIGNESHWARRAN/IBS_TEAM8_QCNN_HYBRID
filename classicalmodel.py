@@ -4,6 +4,7 @@ import torch.optim as optim
 import pandas as pd
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from Levenshtein import distance as levenshtein_distance
 
 # =====================
 # 1️⃣ Load Encoded Data
@@ -24,7 +25,7 @@ def load_encoded_data(one_hot_csv, train_ratio=0.8):
 # 2️⃣ Define Classical CNN Autoencoder (No Quantum)
 # =====================
 class ClassicalEncoder(nn.Module):
-    def __init__(self, input_length=7098, latent_dim=200, num_channels=64):
+    def __init__(self, input_length=7098, latent_dim=10, num_channels=64):
         super(ClassicalEncoder, self).__init__()
         self.conv1 = nn.Conv1d(1, 32, 3, stride=1, padding=1)
         self.conv2 = nn.Conv1d(32, num_channels, 3, stride=1, padding=1)
@@ -48,7 +49,7 @@ class ClassicalEncoder(nn.Module):
         return x
 
 class ClassicalDecoder(nn.Module):
-    def __init__(self, output_length=7098, latent_dim=200):
+    def __init__(self, output_length=7098, latent_dim=10):
         super(ClassicalDecoder, self).__init__()
         self.output_length = output_length * 5
         self.fc = nn.Linear(latent_dim, (self.output_length // 2) * 64)
@@ -65,7 +66,7 @@ class ClassicalDecoder(nn.Module):
         return x
 
 class ClassicalAutoencoder(nn.Module):
-    def __init__(self, input_length=7098, latent_dim=200):
+    def __init__(self, input_length=7098, latent_dim=10):
         super(ClassicalAutoencoder, self).__init__()
         self.encoder = ClassicalEncoder(input_length, latent_dim)
         self.decoder = ClassicalDecoder(input_length, latent_dim)
@@ -80,7 +81,7 @@ class ClassicalAutoencoder(nn.Module):
 # =====================
 import time
 
-def train_model(model, train_dataset, epochs=10, batch_size=32, learning_rate=0.0015):
+def train_model(model, train_dataset, epochs=10, batch_size=16, learning_rate=0.01):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
@@ -103,29 +104,78 @@ def train_model(model, train_dataset, epochs=10, batch_size=32, learning_rate=0.
     end_time = time.time()  # End time tracking
     elapsed_time = end_time - start_time
     print(f"Total Training Time: {elapsed_time:.2f} seconds")
+def one_hot_to_dna(one_hot_matrix):
+    nucleotides = ['A', 'T', 'G', 'C', '-']  # Assuming '-' represents gaps
+    sequences = []
+    
+    for row in one_hot_matrix:
+        if row.ndim == 1:  # Fix for unexpected shape
+            row = row.reshape(-1, 5)  # Assuming 5 one-hot channels (A,T,G,C,-)
+        indices = np.argmax(row, axis=1)  # Get max index for each position
+        sequence = ''.join([nucleotides[i] for i in indices])
+        sequences.append(sequence)
+    return sequences
 
-def evaluate_model(model, test_dataset):
+# Compute Hamming similarity for sequences of equal length
+def hamming_similarity(seq1, seq2):
+    if len(seq1) != len(seq2):
+        return None  # Hamming similarity requires equal lengths
+    matches = sum(c1 == c2 for c1, c2 in zip(seq1, seq2))
+    return (matches / len(seq1)) * 100
+def evaluate_model_with_similarity(model, test_dataset):
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     model.eval()
+    results = []
     total_loss = 0.0
-    criterion = nn.MSELoss()
-    
-    start_time = time.time()  # Start time tracking
+    total_edit_distance = 0
+    total_hamming_similarity = 0
+    total_length = 0
+    hamming_count = 0  # Tracks how many times Hamming similarity is computed
+    criterion = torch.nn.MSELoss()
+
+    start_time = time.time()  # Start evaluation time tracking
 
     with torch.no_grad():
         for X_cnn, _ in test_loader:
             outputs = model(X_cnn)
+            # Convert tensors to numpy with correct shape
+            original_one_hot = X_cnn.cpu().numpy().squeeze(1)
+            decoded_one_hot = outputs.cpu().numpy().squeeze(1)
+            for sequence in decoded_one_hot:
+                results.append(sequence.flatten())
+            # Convert one-hot to DNA sequences
+            original_sequences = one_hot_to_dna(original_one_hot)
+            decoded_sequences = one_hot_to_dna(decoded_one_hot)
+
+            # Compute similarity metrics
+            for orig_seq, dec_seq in zip(original_sequences, decoded_sequences):
+                # Levenshtein Distance Similarity
+                edit_distance = levenshtein_distance(orig_seq, dec_seq)
+                total_edit_distance += edit_distance
+                total_length += len(orig_seq)
+
+                # Hamming Similarity (if sequences are the same length)
+                hamming_sim = hamming_similarity(orig_seq, dec_seq)
+                if hamming_sim is not None:
+                    total_hamming_similarity += hamming_sim
+                    hamming_count += 1
+
+            # Compute MSE loss
             loss = criterion(outputs, X_cnn)
             total_loss += loss.item()
 
-    end_time = time.time()  # End time tracking
-    elapsed_time = end_time - start_time
-    accuracy = (1-total_loss)*100
-    print(f"Test Loss: {total_loss:.6f}")
-    print(f"Accuaracy: {accuracy:.6f}")
-    print(f"Evaluation Time: {elapsed_time:.2f} seconds")
+    # Compute final similarity scores
+    levenshtein_similarity = (1 - total_edit_distance / total_length) * 100 if total_length > 0 else 0
+    hamming_similarity_avg = total_hamming_similarity / hamming_count if hamming_count > 0 else 0
 
+    total_eval_time = time.time() - start_time  # Compute evaluation time
 
+    print(f"\nTest Loss (MSE): {total_loss:.6f}")
+    print(f"Levenshtein Similarity: {levenshtein_similarity:.2f}%")
+    print(f"Hamming Similarity: {hamming_similarity_avg:.2f}% (Only for Equal-Length Sequences)")
+    print(f"Evaluation Time: {total_eval_time:.2f} seconds")
+    np.savetxt("classical_model_outputs.csv", results, delimiter=",")
+    print(f"Model outputs saved")
 # =====================
 # 4️⃣ Run Training (Classical Model)
 # =====================
@@ -134,4 +184,4 @@ one_hot_csv = "one_hot_encoded.csv"
 train_dataset, test_dataset = load_encoded_data(one_hot_csv)
 model = ClassicalAutoencoder()
 train_model(model, train_dataset, epochs=10)
-evaluate_model(model, test_dataset)
+evaluate_model_with_similarity(model, test_dataset)
